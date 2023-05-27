@@ -1,7 +1,8 @@
 import argparse
 import numpy as np
-import cv2
+import cv2 as cv
 import time
+import csv
 
 import torch
 import torch.nn as nn
@@ -55,6 +56,10 @@ def getArch(arch,bins):
         model = L2CS( torchvision.models.resnet.Bottleneck, [3, 4, 6,  3], bins)
     return model
 
+yaw_list = []
+pitch_list = []
+frame_list = []
+
 if __name__ == '__main__':
     args = parse_args()
 
@@ -76,6 +81,8 @@ if __name__ == '__main__':
         )
     ])
     
+
+
     model=getArch(arch, 90)
     print('Loading snapshot.')
     saved_state_dict = torch.load(snapshot_path)
@@ -90,7 +97,9 @@ if __name__ == '__main__':
     idx_tensor = torch.FloatTensor(idx_tensor).cuda(gpu)
     x=0
   
-    cap = cv2.VideoCapture(cam)
+    # cap = cv2.VideoCapture(cam)
+    cap = cv.VideoCapture(cv.CAP_V4L2)
+    currentFrame = 0
 
     # Check if the webcam is opened correctly
     if not cap.isOpened():
@@ -125,8 +134,8 @@ if __name__ == '__main__':
 
                     # Crop image
                     img = frame[y_min:y_max, x_min:x_max]
-                    img = cv2.resize(img, (224, 224))
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    img = cv.resize(img, (224, 224))
+                    img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
                     im_pil = Image.fromarray(img)
                     img=transformations(im_pil)
                     img  = Variable(img).cuda(gpu)
@@ -146,15 +155,37 @@ if __name__ == '__main__':
                     pitch_predicted= pitch_predicted.cpu().detach().numpy()* np.pi/180.0
                     yaw_predicted= yaw_predicted.cpu().detach().numpy()* np.pi/180.0
 
-                
-                    
-                    draw_gaze(x_min,y_min,bbox_width, bbox_height,frame,(pitch_predicted,yaw_predicted),color=(0,0,255))
-                    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 1)
-            myFPS = 1.0 / (time.time() - start_fps)
-            cv2.putText(frame, 'FPS: {:.1f}'.format(myFPS), (10, 20),cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 255, 0), 1, cv2.LINE_AA)
+                    pitch_predicted = round(pitch_predicted, 5)
+                    yaw_predicted = round(yaw_predicted, 5)
 
-            cv2.imshow("Demo",frame)
-            if cv2.waitKey(1) & 0xFF == 27:
+                    currentFrame+=1
+
+                    pitch_list.append(pitch_predicted)
+                    yaw_list.append(yaw_predicted)
+                    frame_list.append(currentFrame)
+                
+                    # following two lines draw a rectangular box on the face and represents the direction of gaze
+                    draw_gaze(x_min,y_min,bbox_width, bbox_height,frame,(pitch_predicted,yaw_predicted),color=(0,0,255))
+                    cv.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 1)
+
+                    
+            myFPS = 1.0 / (time.time() - start_fps)
+            cv.putText(frame, 'FPS: {:.1f}'.format(myFPS), (10, 20),cv.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 255, 0), 1, cv.LINE_AA)
+
+            print(currentFrame)
+            print(yaw_predicted)
+            print(pitch_predicted)
+
+            with open('example.csv', mode='w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['frame','yaw', 'pitch'])
+                for i in range(len(frame_list)):
+                    writer.writerow([frame_list[i],yaw_list[i], pitch_list[i]])
+
+            cv.imshow("Demo",frame)
+            if cv.waitKey(1) & 0xFF == ord('q'):
                 break
-            success,frame = cap.read()  
+            success,frame = cap.read()
+
+
     
